@@ -308,15 +308,17 @@ def boot_sequence():
 
                 remote_source = response.read().decode("utf-8")
                 
-                # Lokale Datei einlesen
                 with open(script_path, "r", encoding="utf-8") as f:
                     local_source = f.read()
 
                 state["target_progress"] = 75
                 state["status"] = "PRÜFE AUF ÄNDERUNGEN..."
 
-                # Direktvergleich des Codes (ignoriert reine Zeilenendungen)
-                if remote_source.strip() != local_source.strip():
+                # Zeilenenden normalisieren (\r\n vs \n), damit kein Endlos-Loop entsteht
+                remote_normalized = remote_source.replace("\r\n", "\n").strip()
+                local_normalized = local_source.replace("\r\n", "\n").strip()
+
+                if remote_normalized != local_normalized:
                     state["status"] = "ÄNDERUNGEN GEFUNDEN! AKTUALISIERE..."
                     state["target_progress"] = 90
 
