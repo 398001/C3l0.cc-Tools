@@ -2,6 +2,8 @@ import os
 import sys
 import time
 import math
+import re
+import urllib.request
 import pyfiglet
 from rich.console import Console
 from rich.panel import Panel
@@ -18,6 +20,9 @@ else:
     import tty
     import termios
 
+VERSION = "1.0.0"
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/398001/C3l0.cc-Tools/main/C3l0.cc%20Tools.py"
+
 console = Console()
 
 def clear_screen():
@@ -27,7 +32,32 @@ def print_banner():
     clear_screen()
     ascii_art = pyfiglet.figlet_format("C3l0.cc Tools", font="slant")
     console.print(Align.center(f"[bold white]{ascii_art}[/bold white]"))
-    console.print(Align.center("[dim white]v1.0.0 | System & Network Utility Suite[/dim white]\n"))
+    console.print(Align.center(f"[dim white]v{VERSION} | System & Network Utility Suite[/dim white]\n"))
+
+def parse_version(v_str):
+    try:
+        return tuple(int(x) for x in v_str.strip().split("."))
+    except ValueError:
+        return (0, 0, 0)
+
+def fetch_github_source():
+    try:
+        req = urllib.request.Request(
+            GITHUB_RAW_URL,
+            headers={"User-Agent": "C3l0-Updater"}
+        )
+        with urllib.request.urlopen(req, timeout=4) as response:
+            if response.status == 200:
+                return response.read().decode("utf-8")
+    except Exception:
+        return None
+    return None
+
+def extract_remote_version(source_code):
+    match = re.search(r'^VERSION\s*=\s*["\']([^"\']+)["\']', source_code, re.MULTILINE)
+    if match:
+        return match.group(1)
+    return None
 
 def get_wave_char(x, y, tick):
     t = tick * 0.045
@@ -50,7 +80,7 @@ def get_wave_char(x, y, tick):
 def build_bg_segment(start_x, length, y, tick):
     return "".join(get_wave_char(start_x + i, y, tick) for i in range(length))
 
-def render_loading_frame(progress_pct, tick):
+def render_loading_frame(progress_pct, tick, status_str="INITIALISIERE C3L0.CC ENVIRONMENT..."):
     width = console.size.width
     height = console.size.height - 1
 
@@ -61,7 +91,6 @@ def render_loading_frame(progress_pct, tick):
     bar_width = 44
     filled = int((progress_pct / 100) * bar_width)
     bar_str = f"[{'█' * filled}{'░' * (bar_width - filled)}] {progress_pct:3.0f}%"
-    status_str = "INITIALISIERE C3L0.CC ENVIRONMENT..."
 
     box_height = banner_height + 4
     start_y = max(0, (height - box_height) // 2)
@@ -132,7 +161,7 @@ def build_menu_lines():
 
 MENU_TABLE_LINES = build_menu_lines()
 BANNER_LINES = pyfiglet.figlet_format("C3l0.cc Tools", font="slant").splitlines()
-SUBTITLE_STR = "v1.0.0 | System & Network Utility Suite"
+SUBTITLE_STR = f"v{VERSION} | System & Network Utility Suite"
 
 def render_menu_frame(tick, input_buffer, error_msg=""):
     width = console.size.width
@@ -263,11 +292,49 @@ def interactive_menu(start_tick):
 def boot_sequence():
     clear_screen()
     tick = 0
-    with Live(render_loading_frame(0, tick), console=console, refresh_per_second=20, screen=True) as live:
+    status = "INITIALISIERE C3L0.CC ENVIRONMENT..."
+    remote_source = None
+    remote_version = None
+    needs_update = False
+
+    with Live(render_loading_frame(0, tick, status), console=console, refresh_per_second=20, screen=True) as live:
         for step in range(101):
-            live.update(render_loading_frame(step, tick))
+            if step == 25:
+                status = "PRÜFE AUF NEUE VERSION..."
+            elif step == 40:
+                live.update(render_loading_frame(step, tick, status))
+                remote_source = fetch_github_source()
+                if remote_source:
+                    remote_version = extract_remote_version(remote_source)
+                    if remote_version and parse_version(remote_version) > parse_version(VERSION):
+                        needs_update = True
+                        status = f"NEUE VERSION GEFUNDEN (v{remote_version})..."
+                    else:
+                        status = f"VERSION AKTUELL (v{VERSION})..."
+                else:
+                    status = "OFFLINE-MODUS (KEINE VERBINDUNG)..."
+            elif step == 70 and needs_update:
+                status = f"INSTALLIERE UPDATE v{remote_version}..."
+            elif step == 85 and needs_update and remote_source:
+                try:
+                    script_path = os.path.abspath(sys.argv[0])
+                    with open(script_path, "w", encoding="utf-8", newline="\n") as f:
+                        f.write(remote_source)
+                    status = "UPDATE ERFOLGREICH! STARTE NEU..."
+                except Exception:
+                    needs_update = False
+                    status = "UPDATE FEHLGESCHLAGEN..."
+            elif step == 90 and not needs_update:
+                status = "LADE MODULE..."
+
+            live.update(render_loading_frame(step, tick, status))
             tick += 1
             time.sleep(0.04)
+
+    if needs_update:
+        clear_screen()
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
     return tick
 
 def run_placeholder_module(name):
