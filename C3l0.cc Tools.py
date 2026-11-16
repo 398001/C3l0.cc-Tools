@@ -40,18 +40,6 @@ def print_banner():
     console.print(Align.center(f"[bold white]{ascii_art}[/bold white]"))
     console.print(Align.center(f"[dim white]v{VERSION} | System & Network Utility Suite[/dim white]\n"))
 
-def parse_version(v_str):
-    try:
-        return tuple(int(x) for x in v_str.strip().split("."))
-    except ValueError:
-        return (0, 0, 0)
-
-def extract_remote_version(source_code):
-    match = re.search(r'^VERSION\s*=\s*["\']([^"\']+)["\']', source_code, re.MULTILINE)
-    if match:
-        return match.group(1)
-    return None
-
 def get_wave_char(x, y, tick):
     t = tick * 0.045
     w1 = math.sin(x * 0.08 + t) * 3.0 + math.cos(y * 0.15 - t * 0.7) * 2.0
@@ -315,31 +303,22 @@ def boot_sequence():
                 }
             )
             with urllib.request.urlopen(req, timeout=8) as response:
-                state["target_progress"] = 45
-                state["status"] = "LADE VERSIONSINFORMATIONEN..."
+                state["target_progress"] = 50
+                state["status"] = "LADE CODE VON GITHUB..."
 
-                total_size = int(response.headers.get("Content-Length", 0))
-                chunks = []
-                downloaded = 0
+                remote_source = response.read().decode("utf-8")
+                
+                # Lokale Datei einlesen
+                with open(script_path, "r", encoding="utf-8") as f:
+                    local_source = f.read()
 
-                while True:
-                    chunk = response.read(1024)
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
-                    downloaded += len(chunk)
-                    if total_size > 0:
-                        dl_pct = min(25, int((downloaded / total_size) * 25))
-                        state["target_progress"] = 45 + dl_pct
+                state["target_progress"] = 75
+                state["status"] = "PRÜFE AUF ÄNDERUNGEN..."
 
-                remote_source = b"".join(chunks).decode("utf-8")
-                state["target_progress"] = 70
-                state["status"] = "VERGLEICHE VERSIONEN..."
-
-                remote_version = extract_remote_version(remote_source)
-                if remote_version and parse_version(remote_version) > parse_version(VERSION):
-                    state["status"] = f"UPDATE GEFUNDEN (v{VERSION} -> v{remote_version})..."
-                    state["target_progress"] = 85
+                # Direktvergleich des Codes (ignoriert reine Zeilenendungen)
+                if remote_source.strip() != local_source.strip():
+                    state["status"] = "ÄNDERUNGEN GEFUNDEN! AKTUALISIERE..."
+                    state["target_progress"] = 90
 
                     with open(script_path, "w", encoding="utf-8", newline="\n") as f:
                         f.write(remote_source)
@@ -348,18 +327,18 @@ def boot_sequence():
 
                     state["needs_update"] = True
                     state["target_progress"] = 100
-                    state["status"] = f"UPDATE AUF v{remote_version} ABGESCHLOSSEN! STARTE NEU..."
+                    state["status"] = "UPDATE ERFOLGREICH! STARTE NEU..."
                 else:
                     state["target_progress"] = 90
-                    state["status"] = f"VERSION AKTUELL (LOKAL v{VERSION} | GITHUB v{remote_version or '?'})"
-                    time.sleep(0.6)
+                    state["status"] = "CODE IST AUF DEM NEUESTEN STAND."
+                    time.sleep(0.5)
                     state["target_progress"] = 100
                     state["status"] = "BEREIT."
 
         except Exception as e:
             state["target_progress"] = 90
-            state["status"] = f"UPDATE-FEHLER: {type(e).__name__}"
-            time.sleep(0.8)
+            state["status"] = f"OFFLINE-MODUS (UPDATE ÜBERSPRUNGEN)..."
+            time.sleep(0.6)
             state["target_progress"] = 100
             state["status"] = "BEREIT."
 
