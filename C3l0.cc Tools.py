@@ -6,6 +6,10 @@ import re
 import threading
 import subprocess
 import urllib.request
+import json
+import socket
+import platform
+import shutil
 import pyfiglet
 from rich.console import Console
 from rich.panel import Panel
@@ -387,16 +391,134 @@ def boot_sequence():
 
     return tick
 
-def run_placeholder_module(name):
+def module_ip_lookup():
     print_banner()
-    with console.status(f"[bold white]Starte {name}...[/bold white]", spinner="dots"):
-        time.sleep(1.5)
+    console.print(Align.center(Panel("[bold white]IP LOOKUP MODULE[/bold white]", border_style="dim white", width=60)))
+    target = Prompt.ask("\n[bold white]Ziel-IP / Domain (Enter für eigene IP)[/bold white]", default="")
     
-    console.print(Align.center(Panel(
-        f"[white]Modul [bold]{name}[/bold] wurde erfolgreich geladen.\nHier kommt deine Logik rein.[/white]",
-        border_style="white",
-        width=60
-    )))
+    url = f"https://ipinfo.io/{target.strip()}/json" if target.strip() else "https://ipinfo.io/json"
+    
+    with console.status("[bold white]Frage IP-Informationen ab...[/bold white]", spinner="dots"):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "C3l0-Tool"})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except Exception as e:
+            data = {"error": str(e)}
+
+    table = Table(show_header=False, border_style="dim white", width=60)
+    table.add_column("Key", style="bold white")
+    table.add_column("Value", style="white")
+
+    if "error" in data:
+        table.add_row("Status", f"[bold white]Fehler: {data['error']}[/bold white]")
+    else:
+        table.add_row("IP-Adresse", data.get("ip", "N/A"))
+        table.add_row("Stadt", data.get("city", "N/A"))
+        table.add_row("Region", data.get("region", "N/A"))
+        table.add_row("Land", data.get("country", "N/A"))
+        table.add_row("Standort", data.get("loc", "N/A"))
+        table.add_row("Organisation", data.get("org", "N/A"))
+        table.add_row("Hostname", data.get("hostname", "N/A"))
+
+    console.print()
+    console.print(Align.center(table))
+    Prompt.ask("\n[dim white]Drücke Enter um zum Hauptmenü zurückzukehren[/dim white]")
+
+def module_port_scanner():
+    print_banner()
+    console.print(Align.center(Panel("[bold white]PORT SCANNER MODULE[/bold white]", border_style="dim white", width=60)))
+    target = Prompt.ask("\n[bold white]Ziel-Host (IP oder Domain)[/bold white]", default="127.0.0.1")
+    
+    common_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 3306, 3389, 8080]
+    port_names = {
+        21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS", 
+        80: "HTTP", 110: "POP3", 135: "RPC", 139: "NetBIOS", 443: "HTTPS", 
+        445: "SMB", 3306: "MySQL", 3389: "RDP", 8080: "HTTP-Proxy"
+    }
+
+    table = Table(show_header=True, header_style="bold white", border_style="dim white", width=60)
+    table.add_column("Port", style="bold white", justify="center", width=10)
+    table.add_column("Dienst", style="white", width=25)
+    table.add_column("Status", style="dim white", justify="center")
+
+    console.print()
+    with console.status(f"[bold white]Scanne {target}...[/bold white]", spinner="dots"):
+        results = []
+        for port in common_ports:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.4)
+                result = s.connect_ex((target, port))
+                s.close()
+                status = "OFFEN" if result == 0 else "GESCHLOSSEN"
+                results.append((port, port_names.get(port, "Unbekannt"), status))
+            except Exception:
+                results.append((port, port_names.get(port, "Unbekannt"), "FEHLER"))
+
+    for port, service, status in results:
+        status_display = "[bold white]OFFEN[/bold white]" if status == "OFFEN" else "[dim white]GESCHLOSSEN[/dim white]"
+        table.add_row(str(port), service, status_display)
+
+    console.print(Align.center(table))
+    Prompt.ask("\n[dim white]Drücke Enter um zum Hauptmenü zurückzukehren[/dim white]")
+
+def module_system_info():
+    print_banner()
+    console.print(Align.center(Panel("[bold white]SYSTEM INFO MODULE[/bold white]", border_style="dim white", width=60)))
+    
+    table = Table(show_header=False, border_style="dim white", width=60)
+    table.add_column("Eigenschaft", style="bold white")
+    table.add_column("Wert", style="white")
+
+    table.add_row("Betriebssystem", f"{platform.system()} {platform.release()}")
+    table.add_row("OS Version", platform.version())
+    table.add_row("Architektur", platform.machine())
+    table.add_row("Computername", platform.node())
+    table.add_row("Python Version", platform.python_version())
+    table.add_row("Prozessor", platform.processor() or "N/A")
+    table.add_row("CPU Kerne (Logical)", str(os.cpu_count()))
+
+    try:
+        total, used, free = shutil.disk_usage("/")
+        table.add_row("Speicher (Gesamt)", f"{total // (2**30)} GB")
+        table.add_row("Speicher (Frei)", f"{free // (2**30)} GB")
+    except Exception:
+        pass
+
+    console.print()
+    console.print(Align.center(table))
+    Prompt.ask("\n[dim white]Drücke Enter um zum Hauptmenü zurückzukehren[/dim white]")
+
+def module_webhook_sender():
+    print_banner()
+    console.print(Align.center(Panel("[bold white]DISCORD WEBHOOK SENDER[/bold white]", border_style="dim white", width=60)))
+    
+    webhook_url = Prompt.ask("\n[bold white]Webhook URL[/bold white]")
+    message = Prompt.ask("[bold white]Nachrichtentext[/bold white]")
+    
+    if not webhook_url.startswith("http"):
+        console.print(Align.center("\n[bold white]Fehler: Ungültige Webhook URL![/bold white]"))
+        Prompt.ask("\n[dim white]Drücke Enter um fortzufahren[/dim white]")
+        return
+
+    payload = json.dumps({"content": message}).encode("utf-8")
+    
+    with console.status("[bold white]Sende Nachricht...[/bold white]", spinner="dots"):
+        try:
+            req = urllib.request.Request(
+                webhook_url,
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "C3l0-Tool"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.status in [200, 204]:
+                    console.print(Align.center("\n[bold white]Nachricht erfolgreich gesendet![/bold white]"))
+                else:
+                    console.print(Align.center(f"\n[bold white]Fehler: HTTP Status {response.status}[/bold white]"))
+        except Exception as e:
+            console.print(Align.center(f"\n[bold white]Fehler beim Senden: {e}[/bold white]"))
+
     Prompt.ask("\n[dim white]Drücke Enter um zum Hauptmenü zurückzukehren[/dim white]")
 
 def main():
@@ -405,13 +527,13 @@ def main():
         choice, tick = interactive_menu(tick)
 
         if choice in ["01", "1"]:
-            run_placeholder_module("IP Lookup")
+            module_ip_lookup()
         elif choice in ["02", "2"]:
-            run_placeholder_module("Port Scanner")
+            module_port_scanner()
         elif choice in ["03", "3"]:
-            run_placeholder_module("System Info")
+            module_system_info()
         elif choice in ["04", "4"]:
-            run_placeholder_module("Webhook Sender")
+            module_webhook_sender()
         elif choice in ["00", "0"]:
             clear_screen()
             console.print("[dim white]Session beendet.[/dim white]")
