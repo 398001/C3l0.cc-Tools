@@ -3,6 +3,7 @@ import sys
 import time
 import math
 import re
+import threading
 import urllib.request
 import pyfiglet
 from rich.console import Console
@@ -39,19 +40,6 @@ def parse_version(v_str):
         return tuple(int(x) for x in v_str.strip().split("."))
     except ValueError:
         return (0, 0, 0)
-
-def fetch_github_source():
-    try:
-        req = urllib.request.Request(
-            GITHUB_RAW_URL,
-            headers={"User-Agent": "C3l0-Updater"}
-        )
-        with urllib.request.urlopen(req, timeout=4) as response:
-            if response.status == 200:
-                return response.read().decode("utf-8")
-    except Exception:
-        return None
-    return None
 
 def extract_remote_version(source_code):
     match = re.search(r'^VERSION\s*=\s*["\']([^"\']+)["\']', source_code, re.MULTILINE)
@@ -292,46 +280,96 @@ def interactive_menu(start_tick):
 def boot_sequence():
     clear_screen()
     tick = 0
-    status = "INITIALISIERE C3L0.CC ENVIRONMENT..."
-    remote_source = None
-    remote_version = None
-    needs_update = False
+    state = {
+        "target_progress": 10,
+        "status": "INITIALISIERE C3L0.CC ENVIRONMENT...",
+        "needs_update": False,
+        "done": False
+    }
 
-    with Live(render_loading_frame(0, tick, status), console=console, refresh_per_second=20, screen=True) as live:
-        for step in range(101):
-            if step == 25:
-                status = "PRÜFE AUF NEUE VERSION..."
-            elif step == 40:
-                live.update(render_loading_frame(step, tick, status))
-                remote_source = fetch_github_source()
-                if remote_source:
-                    remote_version = extract_remote_version(remote_source)
-                    if remote_version and parse_version(remote_version) > parse_version(VERSION):
-                        needs_update = True
-                        status = f"NEUE VERSION GEFUNDEN (v{remote_version})..."
-                    else:
-                        status = f"VERSION AKTUELL (v{VERSION})..."
-                else:
-                    status = "OFFLINE-MODUS (KEINE VERBINDUNG)..."
-            elif step == 70 and needs_update:
-                status = f"INSTALLIERE UPDATE v{remote_version}..."
-            elif step == 85 and needs_update and remote_source:
-                try:
-                    script_path = os.path.abspath(sys.argv[0])
+    def updater_worker():
+        script_path = os.path.abspath(sys.argv[0])
+        if not os.path.exists(script_path):
+            state["status"] = "LOKALE DATEI NICHT GEFUNDEN..."
+            state["target_progress"] = 100
+            time.sleep(0.4)
+            state["done"] = True
+            return
+
+        state["target_progress"] = 25
+        state["status"] = "VERBINDE MIT GITHUB REPOSITORY..."
+
+        try:
+            req = urllib.request.Request(
+                GITHUB_RAW_URL,
+                headers={"User-Agent": "C3l0-Updater"}
+            )
+            with urllib.request.urlopen(req, timeout=8) as response:
+                state["target_progress"] = 45
+                state["status"] = "LADE VERSIONSINFORMATIONEN..."
+
+                total_size = int(response.headers.get("Content-Length", 0))
+                chunks = []
+                downloaded = 0
+
+                while True:
+                    chunk = response.read(1024)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        dl_pct = min(25, int((downloaded / total_size) * 25))
+                        state["target_progress"] = 45 + dl_pct
+
+                remote_source = b"".join(chunks).decode("utf-8")
+                state["target_progress"] = 70
+                state["status"] = "VERGLEICHE VERSIONEN..."
+
+                remote_version = extract_remote_version(remote_source)
+                if remote_version and parse_version(remote_version) > parse_version(VERSION):
+                    state["status"] = f"UPDATE GEFUNDEN (v{VERSION} -> v{remote_version})..."
+                    state["target_progress"] = 85
+
                     with open(script_path, "w", encoding="utf-8", newline="\n") as f:
                         f.write(remote_source)
-                    status = "UPDATE ERFOLGREICH! STARTE NEU..."
-                except Exception:
-                    needs_update = False
-                    status = "UPDATE FEHLGESCHLAGEN..."
-            elif step == 90 and not needs_update:
-                status = "LADE MODULE..."
+                        f.flush()
+                        os.fsync(f.fileno())
 
-            live.update(render_loading_frame(step, tick, status))
+                    state["needs_update"] = True
+                    state["target_progress"] = 100
+                    state["status"] = f"UPDATE AUF v{remote_version} ABGESCHLOSSEN! STARTE NEU..."
+                else:
+                    state["target_progress"] = 90
+                    state["status"] = f"VERSION AKTUELL (v{VERSION}) - LADE MODULE..."
+                    state["target_progress"] = 100
+                    state["status"] = "BEREIT."
+
+        except Exception:
+            state["target_progress"] = 90
+            state["status"] = "OFFLINE-MODUS (UPDATE ÜBERSPRUNGEN)..."
+            state["target_progress"] = 100
+            state["status"] = "BEREIT."
+
+        time.sleep(0.35)
+        state["done"] = True
+
+    worker = threading.Thread(target=updater_worker, daemon=True)
+    worker.start()
+
+    displayed_progress = 0
+
+    with Live(render_loading_frame(0, tick, state["status"]), console=console, refresh_per_second=25, screen=True) as live:
+        while not state["done"] or displayed_progress < 100:
+            if displayed_progress < state["target_progress"]:
+                step = max(1, (state["target_progress"] - displayed_progress) // 3)
+                displayed_progress = min(state["target_progress"], displayed_progress + step)
+
+            live.update(render_loading_frame(displayed_progress, tick, state["status"]))
             tick += 1
             time.sleep(0.04)
 
-    if needs_update:
+    if state["needs_update"]:
         clear_screen()
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
