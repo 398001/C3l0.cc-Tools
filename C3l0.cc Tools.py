@@ -40,6 +40,18 @@ def print_banner():
     console.print(Align.center(f"[bold white]{ascii_art}[/bold white]"))
     console.print(Align.center(f"[dim white]v{VERSION} | System & Network Utility Suite[/dim white]\n"))
 
+def parse_version(v_str):
+    try:
+        return tuple(int(x) for x in v_str.strip().split("."))
+    except ValueError:
+        return (0, 0, 0)
+
+def extract_remote_version(source_code):
+    match = re.search(r'^VERSION\s*=\s*["\']([^"\']+)["\']', source_code, re.MULTILINE)
+    if match:
+        return match.group(1)
+    return None
+
 def get_wave_char(x, y, tick):
     t = tick * 0.045
     w1 = math.sin(x * 0.08 + t) * 3.0 + math.cos(y * 0.15 - t * 0.7) * 2.0
@@ -290,7 +302,7 @@ def boot_sequence():
             return
 
         state["target_progress"] = 25
-        state["status"] = "VERBINDE MIT GITHUB REPOSITORY..."
+        state["status"] = "PRÜFE AUF GITHUB-UPDATES..."
 
         try:
             cache_buster_url = f"{GITHUB_RAW_URL}?t={int(time.time())}"
@@ -304,22 +316,17 @@ def boot_sequence():
             )
             with urllib.request.urlopen(req, timeout=8) as response:
                 state["target_progress"] = 50
-                state["status"] = "LADE CODE VON GITHUB..."
+                state["status"] = "LADE DATEN VON GITHUB..."
 
                 remote_source = response.read().decode("utf-8")
-                
-                with open(script_path, "r", encoding="utf-8") as f:
-                    local_source = f.read()
+                remote_version = extract_remote_version(remote_source)
 
                 state["target_progress"] = 75
-                state["status"] = "PRÜFE AUF ÄNDERUNGEN..."
+                state["status"] = "VERGLEICHE VERSIONEN..."
 
-                # Zeilenenden normalisieren (\r\n vs \n), damit kein Endlos-Loop entsteht
-                remote_normalized = remote_source.replace("\r\n", "\n").strip()
-                local_normalized = local_source.replace("\r\n", "\n").strip()
-
-                if remote_normalized != local_normalized:
-                    state["status"] = "ÄNDERUNGEN GEFUNDEN! AKTUALISIERE..."
+                # Nur updaten, wenn eine gültige Remote-Version existiert und höher ist
+                if remote_version and parse_version(remote_version) > parse_version(VERSION):
+                    state["status"] = f"UPDATE GEFUNDEN (v{VERSION} -> v{remote_version})..."
                     state["target_progress"] = 90
 
                     with open(script_path, "w", encoding="utf-8", newline="\n") as f:
@@ -332,14 +339,14 @@ def boot_sequence():
                     state["status"] = "UPDATE ERFOLGREICH! STARTE NEU..."
                 else:
                     state["target_progress"] = 90
-                    state["status"] = "CODE IST AUF DEM NEUESTEN STAND."
+                    state["status"] = f"VERSION AKTUELL (v{VERSION})"
                     time.sleep(0.5)
                     state["target_progress"] = 100
                     state["status"] = "BEREIT."
 
-        except Exception as e:
+        except Exception:
             state["target_progress"] = 90
-            state["status"] = f"OFFLINE-MODUS (UPDATE ÜBERSPRUNGEN)..."
+            state["status"] = "OFFLINE-MODUS (UPDATE ÜBERSPRUNGEN)..."
             time.sleep(0.6)
             state["target_progress"] = 100
             state["status"] = "BEREIT."
