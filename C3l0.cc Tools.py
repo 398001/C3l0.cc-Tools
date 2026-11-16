@@ -324,19 +324,24 @@ def boot_sequence():
                 state["target_progress"] = 75
                 state["status"] = "VERGLEICHE VERSIONEN..."
 
-                # Nur updaten, wenn eine gültige Remote-Version existiert und höher ist
                 if remote_version and parse_version(remote_version) > parse_version(VERSION):
                     state["status"] = f"UPDATE GEFUNDEN (v{VERSION} -> v{remote_version})..."
                     state["target_progress"] = 90
 
-                    with open(script_path, "w", encoding="utf-8", newline="\n") as f:
-                        f.write(remote_source)
-                        f.flush()
-                        os.fsync(f.fileno())
+                    try:
+                        with open(script_path, "w", encoding="utf-8", newline="\n") as f:
+                            f.write(remote_source)
+                            f.flush()
+                            os.fsync(f.fileno())
 
-                    state["needs_update"] = True
-                    state["target_progress"] = 100
-                    state["status"] = "UPDATE ERFOLGREICH! STARTE NEU..."
+                        state["needs_update"] = True
+                        state["target_progress"] = 100
+                        state["status"] = "UPDATE ERFOLGREICH! STARTE NEU..."
+                    except Exception as write_err:
+                        state["needs_update"] = False
+                        state["target_progress"] = 100
+                        state["status"] = f"SCHREIBFEHLER: {write_err}"
+                        time.sleep(1.5)
                 else:
                     state["target_progress"] = 90
                     state["status"] = f"VERSION AKTUELL (v{VERSION})"
@@ -496,8 +501,8 @@ def module_webhook_sender():
         try:
             req = urllib.request.Request(
                 webhook_url,
-                data=payload,
-                headers={"Content-Type": "application/json", "User-Agent": "C3l0-Tool"}
+                    data=payload,
+                    headers={"Content-Type": "application/json", "User-Agent": "C3l0-Tool"}
             )
             with urllib.request.urlopen(req, timeout=5) as response:
                 if response.status in [200, 204]:
