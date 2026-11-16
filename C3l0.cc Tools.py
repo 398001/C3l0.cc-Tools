@@ -4,6 +4,7 @@ import time
 import math
 import re
 import threading
+import subprocess
 import urllib.request
 import pyfiglet
 from rich.console import Console
@@ -288,7 +289,7 @@ def boot_sequence():
     }
 
     def updater_worker():
-        script_path = os.path.abspath(sys.argv[0])
+        script_path = os.path.abspath(__file__)
         if not os.path.exists(script_path):
             state["status"] = "LOKALE DATEI NICHT GEFUNDEN..."
             state["target_progress"] = 100
@@ -300,9 +301,14 @@ def boot_sequence():
         state["status"] = "VERBINDE MIT GITHUB REPOSITORY..."
 
         try:
+            cache_buster_url = f"{GITHUB_RAW_URL}?t={int(time.time())}"
             req = urllib.request.Request(
-                GITHUB_RAW_URL,
-                headers={"User-Agent": "C3l0-Updater"}
+                cache_buster_url,
+                headers={
+                    "User-Agent": "C3l0-Updater",
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache"
+                }
             )
             with urllib.request.urlopen(req, timeout=8) as response:
                 state["target_progress"] = 45
@@ -341,13 +347,15 @@ def boot_sequence():
                     state["status"] = f"UPDATE AUF v{remote_version} ABGESCHLOSSEN! STARTE NEU..."
                 else:
                     state["target_progress"] = 90
-                    state["status"] = f"VERSION AKTUELL (v{VERSION}) - LADE MODULE..."
+                    state["status"] = f"VERSION AKTUELL (LOKAL v{VERSION} | GITHUB v{remote_version or '?'})"
+                    time.sleep(0.6)
                     state["target_progress"] = 100
                     state["status"] = "BEREIT."
 
-        except Exception:
+        except Exception as e:
             state["target_progress"] = 90
-            state["status"] = "OFFLINE-MODUS (UPDATE ÜBERSPRUNGEN)..."
+            state["status"] = f"UPDATE-FEHLER: {type(e).__name__}"
+            time.sleep(0.8)
             state["target_progress"] = 100
             state["status"] = "BEREIT."
 
@@ -371,7 +379,11 @@ def boot_sequence():
 
     if state["needs_update"]:
         clear_screen()
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        if os.name == 'nt':
+            subprocess.Popen([sys.executable, os.path.abspath(__file__)])
+            sys.exit(0)
+        else:
+            os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
 
     return tick
 
